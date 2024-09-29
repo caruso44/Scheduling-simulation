@@ -1,39 +1,61 @@
 from typing import List, Optional
 import heapq
+from collections import deque
 
 from Processor import Processor
 from Process import Process
 
 
 class Scheduler:
-    def __init__(self, processors: List[Processor], scheduling_algorithm: str) -> None:
-        self.processors: List[Processor] = processors  # Lista de processadores
-        self.scheduling_algorithm: str = scheduling_algorithm  # Algoritmo de escalonamento
-        self.queue: List[tuple[float, int, Process]] = []  # Fila de processos
-        self.counter: int = 0  # Contador para desempate
+    def __init__(self, processors: list, scheduling_algorithm: str, quantum: int = 3):
+        self.processors : list[Processor] = processors  # Lista de processadores
+        self.scheduling_algorithm = scheduling_algorithm  # Algoritmo de escalonamento
+        self.queue = deque()  # Fila de processos para RR e FIFO
+        self.quantum = quantum  # Quantum para o Round Robin
 
-    def add_process(self, process: Process) -> None:
-        # Usamos um contador para desempate, garantindo que o heapq funcione corretamente
-        heapq.heappush(self.queue, (process.arrival_time, self.counter, process))
-        self.counter += 1
+    def add_process(self, process: Process):
+        self.queue.append(process)
 
-    def schedule(self, current_time: float) -> None:
+    def schedule(self, current_time: int):
         if self.scheduling_algorithm == 'fifo':
             self.schedule_fifo(current_time)
         elif self.scheduling_algorithm == 'sjf':
             self.schedule_sjf(current_time)
-
-    def schedule_fifo(self, current_time: float) -> None:
-        # First-In-First-Out (FIFO) - escalona com base no tempo de chegada
+        elif self.scheduling_algorithm == 'round_robin':
+            self.schedule_round_robin(current_time)
+        elif self.scheduling_algorithm == 'priority':
+            self.schedule_priority(current_time)
+            
+    def schedule_fifo(self, current_time: int):
         for processor in self.processors:
             if processor.is_idle(current_time) and self.queue:
-                _, _, process = heapq.heappop(self.queue)
+                process = self.queue.popleft()
                 processor.assign_process(process, current_time)
 
-    def schedule_sjf(self, current_time: float) -> None:
+    def schedule_sjf(self, current_time: int):
         # Shortest Job First (SJF) - escolhe o processo com menor duração restante
+        if self.queue:
+            self.queue = deque(sorted(self.queue, key=lambda p: p.remaining_time))
         for processor in self.processors:
             if processor.is_idle(current_time) and self.queue:
-                self.queue.sort(key=lambda x: x[2].duration)  # Ordena pelo tempo de duração do processo
-                _, _, process = self.queue.pop(0)
+                process = self.queue.popleft()
+                processor.assign_process(process, current_time)
+
+    def schedule_round_robin(self, current_time: int):
+        for processor in self.processors:
+            if processor.is_idle(current_time) and self.queue:
+                process = self.queue.popleft()
+                processor.assign_process(process, current_time)
+            elif processor.current_process:
+                processor.current_process.remaining_time -= self.quantum
+                if processor.current_process.remaining_time > 0:
+                    self.queue.append(processor.current_process)  # Preempção e volta à fila
+                processor.release_process(current_time)
+
+    def schedule_priority(self, current_time: int):
+        if self.queue:
+            self.queue = deque(sorted(self.queue, key=lambda p: p.priority))
+        for processor in self.processors:
+            if processor.is_idle(current_time) and self.queue:
+                process = self.queue.popleft()
                 processor.assign_process(process, current_time)
