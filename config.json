@@ -1,0 +1,8 @@
+{
+    "num_processors": 9,
+    "total_simulation_time": 1235,
+    "alfa": 1,
+    "beta": 2,
+    "scheduling_algorithm": "fifo",
+    "arrival_rate": 2
+  }
