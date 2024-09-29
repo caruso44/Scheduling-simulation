@@ -27,9 +27,9 @@ class Simulation:
         process_id = 0
         while self.current_time < total_time:
             # Gerar novos processos baseados na distribuição de Poisson
-            if np.random.binomial(n=1, p=self.arrival_rate):
-                n_process = random.randint(1, 5) 
-                for i in range(n_process):
+            n = np.random.binomial(n=10, p=self.arrival_rate)
+            if n > 0:
+                for i in range(n):
                     self.create_process(process_id)
                     process_id += 1
             
