@@ -1,15 +1,20 @@
+import csv
+
 import simpy
 import random
 import numpy as np
 from abc import ABC, abstractmethod
 
 # Constants
-NUM_PROCESSORS = 1        # Fixed number of processors
+NUM_PROCESSORS = 4        # Fixed number of processors
 QUANTUM = 1               # Quantum for Round Robin (updated to 1 unit)
-MEAN_DURATION = 5         # Mean process duration (updated)
-STD_DURATION = 1          # Standard deviation of process duration (updated)
+MEAN_DURATION = 50         # Mean process duration (updated)
+STD_DURATION = 40          # Standard deviation of process duration (updated)
 ARRIVAL_RATE = 0.5        # Arrival rate (processes per unit time, updated)
 SIM_TIME = 200            # Simulation time (updated)
+NUM_INSTANCES = 5000       # Number of instances to simulate
+
+CSV_FILE_PATH = 'average_ready_times.csv'  # CSV File path
 
 
 # Process class representing a process in the system
@@ -22,6 +27,7 @@ class Process:
         self.end_time = None
         self.ready_time = 0  # Total time spent in ready state
         self.added_to_ready_queue = None  # Time when the process was added to the ready queue
+        self.preempted = False
 
 
 # CPU class representing a processor
@@ -114,11 +120,13 @@ class SJFPreemptiveScheduler(Scheduler):
                     self.env.process(self.execute_process(next_process, i))
                     return
 
-    def execute_process(self, process, cpu_id):
+    def execute_process(self, process: Process, cpu_id: int):
         with self.cpu.processor.request() as req:
             try:
                 yield req
                 process.start_time = self.env.now
+                if process.preempted:
+                    print(f"Resuming process {process.pid} at {self.env.now}")
                 # Calculate how long the process was in the ready queue
                 process.ready_time += self.env.now - process.added_to_ready_queue
                 yield self.env.timeout(process.duration)
@@ -127,6 +135,8 @@ class SJFPreemptiveScheduler(Scheduler):
                 self.current_processes[cpu_id] = None
                 self.schedule()
             except simpy.Interrupt as interrupt:
+                process.added_to_ready_queue = self.env.now
+                process.preempted = True
                 self.ready_queue.append(process)
                 self.current_processes[cpu_id] = None
                 self.schedule()
@@ -134,15 +144,25 @@ class SJFPreemptiveScheduler(Scheduler):
 
 # Round Robin (RR) Scheduler
 class RRScheduler(Scheduler):
+    def __init__(self, env, cpu):
+        super().__init__(env, cpu)
+        self.currently_running = 0  # Track the number of processes currently running
+
     def schedule(self):
-        if self.ready_queue and self.cpu.processor.count < NUM_PROCESSORS:
+        # Continuously schedule if there's space in CPU and ready queue isn't empty
+        while self.ready_queue and self.currently_running < NUM_PROCESSORS:
             process = self.ready_queue.pop(0)
             self.env.process(self.execute_process(process))
 
-    def execute_process(self, process):
+    def execute_process(self, process: Process):
         with self.cpu.processor.request() as req:
             yield req
+            self.currently_running += 1
+
             process.start_time = self.env.now
+            if process.preempted:
+                print(f"Resuming process {process.pid} at {self.env.now}")
+
             # Calculate how long the process was in the ready queue
             process.ready_time += self.env.now - process.added_to_ready_queue
             execution_time = min(QUANTUM, process.duration)
@@ -152,12 +172,14 @@ class RRScheduler(Scheduler):
             if process.duration > 0:
                 # Process not finished, re-enter ready queue
                 process.added_to_ready_queue = self.env.now  # Update when it goes back to the queue
+                process.preempted = True
                 self.ready_queue.append(process)
             else:
                 process.end_time = self.env.now
                 print(f"Process {process.pid} finished at {self.env.now}")
-            self.schedule()
 
+            self.currently_running -= 1
+            self.schedule()
 
 
 # List to store completed processes
@@ -192,15 +214,63 @@ def simulate(scheduler_class, arrival_rate=ARRIVAL_RATE, sim_time=SIM_TIME):
     print(f"Average Ready Time: {average_ready_time:.2f} units")
 
 
-# Run the simulations with different schedulers
-print("First Come, First Served (FCFS) Simulation:")
-simulate(FCFSScheduler)
+def run_one_simulation_instance():
+    # Run the simulations with different schedulers
+    print("First Come, First Served (FCFS) Simulation:")
+    simulate(FCFSScheduler)
 
-print("\nShortest Job First (SJF) Simulation:")
-simulate(SJFScheduler)
+    print("\nShortest Job First (SJF) Simulation:")
+    simulate(SJFScheduler)
 
-print("\nShortest Job First with Preemption (SJF-P) Simulation:")
-simulate(SJFPreemptiveScheduler)
+    print("\nShortest Job First with Preemption (SJF-P) Simulation:")
+    simulate(SJFPreemptiveScheduler)
 
-print("\nRound Robin (RR) Simulation:")
-simulate(RRScheduler)
+    print("\nRound Robin (RR) Simulation:")
+    simulate(RRScheduler)
+
+
+# Function to simulate all schedulers in one instance
+def simulate_instance(instance_num):
+    results = [instance_num]  # Start with instance number
+
+    # Simulate each scheduler and append its average ready time
+    for scheduler_class in [FCFSScheduler, SJFScheduler, SJFPreemptiveScheduler, RRScheduler]:
+        global completed_processes
+        completed_processes = []  # Reset for each simulation
+        env = simpy.Environment()
+        cpu = CPU(env)
+        scheduler = scheduler_class(env, cpu)
+        env.process(process_generator(env, scheduler, ARRIVAL_RATE))
+        env.run(until=SIM_TIME)
+
+        # Calculate average ready time
+        completed = [p for p in completed_processes if p.end_time is not None]
+        total_ready_time = sum(p.ready_time for p in completed)
+        average_ready_time = total_ready_time / len(completed) if completed else 0
+        results.append(average_ready_time)
+
+    return results
+
+
+def generate_csv_file():
+    # Run all instances and write to CSV
+    with open(CSV_FILE_PATH, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        # Write header
+        writer.writerow(['Instance', 'FCFS', 'SJF', 'SJF-P', 'RR'])
+
+        # Simulate and write each instance result
+        for i in range(NUM_INSTANCES):
+            row = simulate_instance(i)
+            writer.writerow(row)
+
+    print(f"Simulation results saved to {CSV_FILE_PATH}")
+
+
+# def validate():
+#     print("First Come, First Served (FCFS) Simulation:")
+#     simulate(FCFSScheduler)
+
+
+if __name__ == '__main__':
+    generate_csv_file()
