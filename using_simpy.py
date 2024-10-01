@@ -6,10 +6,10 @@ import numpy as np
 from abc import ABC, abstractmethod
 
 # Constants
-NUM_PROCESSORS = 1        # Fixed number of processors
+NUM_PROCESSORS = 4        # Fixed number of processors
 QUANTUM = 1               # Quantum for Round Robin (updated to 1 unit)
-MEAN_DURATION = 10         # Mean process duration (updated)
-STD_DURATION = 5          # Standard deviation of process duration (updated)
+MEAN_DURATION = 50         # Mean process duration (updated)
+STD_DURATION = 40          # Standard deviation of process duration (updated)
 ARRIVAL_RATE = 1        # Arrival rate (processes per unit time, updated)
 SIM_TIME = 100            # Simulation time (updated)
 NUM_INSTANCES = 5000       # Number of instances to simulate
@@ -324,4 +324,4 @@ def validate():
 
 
 if __name__ == '__main__':
-    validate()
+    generate_csv_file()
